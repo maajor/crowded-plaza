@@ -1,0 +1,11 @@
+[package]
+name = "mgame"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.7"
+rand = "0.8.0"
+
+[workspace]
+resolver = "2"
