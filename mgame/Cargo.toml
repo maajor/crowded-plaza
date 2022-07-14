@@ -2,10 +2,19 @@
 name = "mgame"
 version = "0.1.0"
 edition = "2021"
+resolver = "2"
 
 [dependencies]
-bevy = "0.7"
+bevy = { version = "0.7", default_features = false, features = ["bevy_winit", "bevy_render",  "bevy_core_pipeline", "bevy_pbr"] }
 rand = "0.8.0"
+raw-window-handle = "0.4.2"
+wasm-bindgen = "0.2.79"
+web-sys = { version = "0.3.56", features = [
+    "Document",
+    "Window",
+    "HtmlCanvasElement",
+] }
 
-[workspace]
-resolver = "2"
+[profile.release]
+lto = true
+opt-level = 'z'
