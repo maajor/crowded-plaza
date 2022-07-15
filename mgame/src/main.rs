@@ -1,6 +1,13 @@
 use bevy::{
-    asset::AssetPlugin, core_pipeline::CorePipelinePlugin, input::InputPlugin, pbr::PbrPlugin,
-    prelude::*, render::RenderPlugin, window::WindowPlugin, winit::WinitPlugin,
+    asset::AssetPlugin,
+    core_pipeline::CorePipelinePlugin,
+    input::InputPlugin,
+    math::vec3,
+    pbr::PbrPlugin,
+    prelude::*,
+    render::{camera::Camera3d, RenderPlugin},
+    window::WindowPlugin,
+    winit::WinitPlugin,
 };
 use rand::{thread_rng, Rng};
 // https://crowdedcity.io/
@@ -18,7 +25,6 @@ struct Leader;
 
 fn main() {
     App::new()
-        //.add_plugins(DefaultPlugins)
         .add_plugins(MinimalPlugins)
         .add_plugin(TransformPlugin::default())
         .add_plugin(InputPlugin::default())
@@ -36,6 +42,7 @@ fn main() {
         .add_system(leader_path_finding)
         .add_system(player_move)
         .add_system(actor_follow)
+        .add_system(update_camera)
         .run();
 }
 
@@ -53,9 +60,19 @@ fn get_color_by_faction(faction: i32) -> Color {
 }
 
 // system: pawn get input and move
-fn player_move(query: Query<&mut Actor, With<Pawn>>) {
-    for actor in query.iter() {
-        // todo!();
+fn player_move(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut query: Query<(&Actor, &mut Transform), With<Pawn>>,
+) {
+    let mut player = query.single_mut();
+    if keyboard_input.pressed(KeyCode::W) {
+        player.1.translation.x += 1.0;
+    } else if keyboard_input.just_pressed(KeyCode::A) {
+        player.1.translation.z += 1.0;
+    } else if keyboard_input.just_pressed(KeyCode::S) {
+        player.1.translation.x -= 1.0;
+    } else if keyboard_input.just_pressed(KeyCode::D) {
+        player.1.translation.z -= 1.0;
     }
 }
 
@@ -71,6 +88,17 @@ fn actor_follow(query: Query<&mut Actor, (Without<Pawn>, Without<Leader>)>) {
     for actor in query.iter() {
         // todo!();
     }
+}
+
+// https://github.com/bevyengine/bevy/issues/2198
+fn update_camera(
+    player: Query<&Transform, (With<Pawn>, Without<Camera3d>)>,
+    mut camera: Query<&mut Transform, (With<Camera3d>, Without<Pawn>)>,
+) {
+    let pl = player.single();
+    let mut cam = camera.single_mut();
+    cam.translation = pl.translation + vec3(5.0, 10.0, 0.0);
+    cam.look_at(pl.translation, vec3(1.0, 0.0, 0.0));
 }
 
 fn setup(
