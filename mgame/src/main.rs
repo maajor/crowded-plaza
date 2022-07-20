@@ -57,12 +57,12 @@ fn main() {
             ..default()
         })
         .add_startup_system(setup)
-        .add_system(move_player_system)
+        .add_system(change_direction_player_system)
         .add_system(change_direction_actor_system)
-        .add_system(change_direction_pawn_system)
+        .add_system(change_direction_opponent_system)
         .add_system(move_actor_system)
         .add_system(move_pawn_system)
-        .add_system(change_faction_actor_system)
+        .add_system(change_actor_faction_system)
         .add_system(update_camera_lookat_system)
         .add_system(follow_pawn_system)
         .add_system(repulse_actor_system)
@@ -89,8 +89,8 @@ fn get_color_by_faction(faction: i32) -> Color {
     }
 }
 
-// system: PlayerController get input and move
-fn move_player_system(
+// system: player get mouse input and change direction
+fn change_direction_player_system(
     mouse_input: Res<Input<MouseButton>>,
     mut cursor_moved_events: EventReader<CursorMoved>,
     windows: ResMut<Windows>,
@@ -112,6 +112,7 @@ fn move_player_system(
     }
 }
 
+// helper: change a actor's direction with some chance
 fn random_change_direction(mut actor: &mut Actor, rng: &mut ThreadRng, speed: f32) {
     let change_direction_random = rng.gen_range(0.0..1.0);
     if change_direction_random < 0.01 {
@@ -123,6 +124,7 @@ fn random_change_direction(mut actor: &mut Actor, rng: &mut ThreadRng, speed: f3
     };
 }
 
+// system: actor with no faction will change direction randomly
 fn change_direction_actor_system(mut actor_query: Query<&mut Actor, Without<Pawn>>) {
     let mut rng = thread_rng();
     for mut actor in actor_query.iter_mut() {
@@ -133,7 +135,8 @@ fn change_direction_actor_system(mut actor_query: Query<&mut Actor, Without<Pawn
     }
 }
 
-fn change_direction_pawn_system(
+// system: opponent's will change direction randomly
+fn change_direction_opponent_system(
     mut opponent_query: Query<(&mut Actor, &Pawn), With<OpponentController>>,
 ) {
     let mut rng = thread_rng();
@@ -145,6 +148,7 @@ fn change_direction_pawn_system(
     }
 }
 
+// system: update actor's location with velocity, clamp velocity and damp acceleration
 fn move_actor_system(mut actor_query: Query<(&mut Transform, &mut Actor), Without<Pawn>>) {
     for (mut tr, mut actor) in actor_query.iter_mut() {
         tr.translation += actor.velocity;
@@ -157,12 +161,14 @@ fn move_actor_system(mut actor_query: Query<(&mut Transform, &mut Actor), Withou
     }
 }
 
+// system: update pawn's location with velocity
 fn move_pawn_system(mut actor_query: Query<(&mut Transform, &Actor), With<Pawn>>) {
     for (mut tr, actor) in actor_query.iter_mut() {
         tr.translation += actor.velocity;
     }
 }
 
+// system: faction's actor should follow leader pawn's dirion
 fn follow_pawn_system(
     mut actor_query: Query<(&mut Actor, &Transform), Without<Pawn>>,
     pawn_query: Query<(&Actor, &Pawn, &Transform)>,
@@ -179,9 +185,11 @@ fn follow_pawn_system(
         if actor.faction != -1 {
             match faction_to_velocity.get(&actor.faction) {
                 Some(v) => {
+                    // align to leader pawn's direction, add to acceleration
                     let acc = *v - actor.velocity;
                     actor.accleration += acc * ALIGN_FACTOR;
 
+                    // move to leader pawn's position, add to acceleration
                     let toward_pawn =
                         *faction_to_position.get(&actor.faction).unwrap() - tr.translation;
                     actor.accleration += toward_pawn * ATTRACT_FACTOR;
@@ -192,12 +200,8 @@ fn follow_pawn_system(
     }
 }
 
-// follow leader direction
-// seperation
-// move to leader position
-
-// system: actor follow and avoid collision
-fn change_faction_actor_system(
+// system: change actor's faction and visual according to it's surrounding majority faction
+fn change_actor_faction_system(
     spatial_query: Res<ActorSpace>,
     mut actor_set: Query<(
         Entity,
@@ -256,7 +260,7 @@ fn change_faction_actor_system(
     }
 }
 
-// system: actor follow and avoid collision
+// system: actor should seperate from each other when they are close
 fn repulse_actor_system(
     spatial_query: Res<ActorSpace>,
     mut actor_set: Query<(Entity, &Transform, &mut Actor)>,
@@ -295,6 +299,7 @@ fn repulse_actor_system(
     }
 }
 
+// update camera position to look at player
 // https://github.com/bevyengine/bevy/issues/2198
 fn update_camera_lookat_system(
     player_query: Query<&Transform, (With<PlayerController>, Without<Camera3d>)>,
