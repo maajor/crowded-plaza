@@ -18,6 +18,7 @@ use std::{collections::HashMap, f32::consts::PI};
 struct Actor {
     faction: i32,
     velocity: Vec3,
+    accleration: Vec3,
 }
 
 #[derive(Component)]
@@ -30,11 +31,14 @@ struct PlayerController;
 #[derive(Component)]
 struct OpponentController;
 
-const STEP: f32 = 0.03;
 const OPPONENT_MOVE_SCALE: f32 = 1.0;
 const PAWN_SPEED: f32 = 0.02;
 const WANDER_SPEED: f32 = 0.005;
 const NEIGHBOR_THRESHOLD: f32 = 0.5;
+const REPULSION_THRESHOLD: f32 = 0.2;
+const REPULSION_FACTOR: f32 = 0.001;
+const ALIGN_FACTOR: f32 = 0.01;
+const ATTRACT_FACTOR: f32 = 0.0003;
 
 fn main() {
     App::new()
@@ -57,9 +61,11 @@ fn main() {
         .add_system(change_direction_actor_system)
         .add_system(change_direction_pawn_system)
         .add_system(move_actor_system)
-        .add_system(follow_actor_system)
+        .add_system(move_pawn_system)
+        .add_system(change_faction_actor_system)
         .add_system(update_camera_lookat_system)
         .add_system(follow_pawn_system)
+        .add_system(repulse_actor_system)
         .run();
 }
 
@@ -85,24 +91,25 @@ fn get_color_by_faction(faction: i32) -> Color {
 
 // system: PlayerController get input and move
 fn move_player_system(
-    keyboard_input: Res<Input<KeyCode>>,
+    mouse_input: Res<Input<MouseButton>>,
+    mut cursor_moved_events: EventReader<CursorMoved>,
+    windows: ResMut<Windows>,
     mut player_query: Query<&mut Actor, With<PlayerController>>,
 ) {
+    let window = windows.primary();
+    let width = window.width();
+    let height = window.height();
+    let window_size = Vec2::new(width, height) / 2.0;
     let mut player = player_query.single_mut();
-    let mut direction = player.velocity.normalize();
-    if keyboard_input.pressed(KeyCode::W) {
-        direction.x += STEP;
+    if mouse_input.pressed(MouseButton::Left) {
+        for event in cursor_moved_events.iter() {
+            let move_direction = Vec2::new(
+                event.position.y - window_size.y,
+                -event.position.x + window_size.x,
+            );
+            player.velocity = move_direction.normalize().extend(0.0) * PAWN_SPEED;
+        }
     }
-    if keyboard_input.pressed(KeyCode::A) {
-        direction.y += STEP;
-    }
-    if keyboard_input.pressed(KeyCode::S) {
-        direction.x -= STEP;
-    }
-    if keyboard_input.pressed(KeyCode::D) {
-        direction.y -= STEP;
-    }
-    player.velocity = direction.normalize() * PAWN_SPEED;
 }
 
 fn random_change_direction(mut actor: &mut Actor, rng: &mut ThreadRng, speed: f32) {
@@ -138,26 +145,47 @@ fn change_direction_pawn_system(
     }
 }
 
-fn move_actor_system(mut actor_query: Query<(&mut Transform, &Actor)>) {
+fn move_actor_system(mut actor_query: Query<(&mut Transform, &mut Actor), Without<Pawn>>) {
+    for (mut tr, mut actor) in actor_query.iter_mut() {
+        tr.translation += actor.velocity;
+        let acc = actor.accleration;
+        actor.velocity += acc;
+        if actor.velocity.length() > PAWN_SPEED {
+            actor.velocity = actor.velocity.normalize() * PAWN_SPEED;
+        }
+        actor.accleration = acc * 0.5; // damping
+    }
+}
+
+fn move_pawn_system(mut actor_query: Query<(&mut Transform, &Actor), With<Pawn>>) {
     for (mut tr, actor) in actor_query.iter_mut() {
         tr.translation += actor.velocity;
     }
 }
 
 fn follow_pawn_system(
-    mut actor_query: Query<&mut Actor, Without<Pawn>>,
-    pawn_query: Query<(&Actor, &Pawn)>,
+    mut actor_query: Query<(&mut Actor, &Transform), Without<Pawn>>,
+    pawn_query: Query<(&Actor, &Pawn, &Transform)>,
 ) {
     let mut faction_to_velocity: HashMap<i32, Vec3> = HashMap::new();
-    for (pawn_actor, pawn) in pawn_query.iter() {
+    let mut faction_to_position: HashMap<i32, Vec3> = HashMap::new();
+    for (pawn_actor, pawn, tr) in pawn_query.iter() {
         if pawn.alive {
             faction_to_velocity.insert(pawn_actor.faction, pawn_actor.velocity);
+            faction_to_position.insert(pawn_actor.faction, tr.translation);
         }
     }
-    for mut actor in actor_query.iter_mut() {
+    for (mut actor, tr) in actor_query.iter_mut() {
         if actor.faction != -1 {
             match faction_to_velocity.get(&actor.faction) {
-                Some(v) => actor.velocity = *v,
+                Some(v) => {
+                    let acc = *v - actor.velocity;
+                    actor.accleration += acc * ALIGN_FACTOR;
+
+                    let toward_pawn =
+                        *faction_to_position.get(&actor.faction).unwrap() - tr.translation;
+                    actor.accleration += toward_pawn * ATTRACT_FACTOR;
+                }
                 None => {}
             }
         }
@@ -169,7 +197,7 @@ fn follow_pawn_system(
 // move to leader position
 
 // system: actor follow and avoid collision
-fn follow_actor_system(
+fn change_faction_actor_system(
     spatial_query: Res<ActorSpace>,
     mut actor_set: Query<(
         Entity,
@@ -213,14 +241,54 @@ fn follow_actor_system(
     for (entity, _, mut actor, mut mat) in actor_set.iter_mut() {
         match entity_id_to_faction.get(&entity) {
             Some(fac) => {
-                if *fac >= 0 {
+                if *fac >= 0 && *fac != actor.faction {
                     actor.faction = *fac;
+                    actor.velocity = Vec3::new(0.0, 0.0, 0.0);
                     *mat = faction_materials
                         .faction_materials
                         .get(&fac)
                         .unwrap()
                         .clone();
                 }
+            }
+            None => {}
+        }
+    }
+}
+
+// system: actor follow and avoid collision
+fn repulse_actor_system(
+    spatial_query: Res<ActorSpace>,
+    mut actor_set: Query<(Entity, &Transform, &mut Actor)>,
+) {
+    let mut entity_id_to_repulse: HashMap<Entity, Vec3> = HashMap::new();
+    for (entity, tr, actor) in actor_set.iter() {
+        // neighbor query include self
+        for (neighbor_pos, neighbor_entity) in spatial_query.k_nearest_neighbour(tr.translation, 2)
+        {
+            if neighbor_entity.id() != entity.id() {
+                match actor_set.get(neighbor_entity) {
+                    Ok((_, _, neighbor_actor)) => {
+                        if neighbor_actor.faction == -1 {
+                            continue; // we skip neighbor no faction actor
+                        }
+                        if neighbor_actor.faction == actor.faction
+                            && neighbor_pos.distance(tr.translation) < REPULSION_THRESHOLD
+                        {
+                            entity_id_to_repulse
+                                .insert(entity, (neighbor_pos - tr.translation).normalize());
+                        }
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+
+    for (entity, _, mut actor) in actor_set.iter_mut() {
+        match entity_id_to_repulse.get(&entity) {
+            Some(repul) => {
+                actor.accleration -= *repul * REPULSION_FACTOR;
             }
             None => {}
         }
@@ -294,6 +362,7 @@ fn setup(
             .insert(Actor {
                 faction: -1,
                 velocity: dir.normalize() * WANDER_SPEED,
+                accleration: Vec3::new(0.0, 0.0, 0.0),
             });
     }
 
@@ -305,7 +374,8 @@ fn setup(
         commands
             .spawn_bundle(PbrBundle {
                 mesh: meshes.add(Mesh::from(shape::Capsule {
-                    radius: 0.1,
+                    radius: 0.12,
+                    depth: 1.2,
                     ..default()
                 })),
                 material: handles.faction_materials.get(&fac).unwrap().clone(),
@@ -316,6 +386,7 @@ fn setup(
             .insert(Actor {
                 faction: fac,
                 velocity: dir.normalize() * PAWN_SPEED,
+                accleration: Vec3::new(0.0, 0.0, 0.0),
             })
             .insert(Pawn { alive: true })
             .insert(OpponentController {});
@@ -328,7 +399,8 @@ fn setup(
     commands
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Capsule {
-                radius: 0.1,
+                radius: 0.12,
+                depth: 1.2,
                 ..default()
             })),
             material: handles.faction_materials.get(&0).unwrap().clone(),
@@ -339,6 +411,7 @@ fn setup(
         .insert(Actor {
             faction: 0,
             velocity: dir.normalize() * PAWN_SPEED,
+            accleration: Vec3::new(0.0, 0.0, 0.0),
         })
         .insert(Pawn { alive: true })
         .insert(PlayerController);
@@ -365,6 +438,18 @@ fn setup(
             shadows_enabled: true,
             ..default()
         },
+        ..default()
+    });
+
+    commands.spawn_bundle(PbrBundle {
+        mesh: meshes.add(Mesh::from(shape::Box::new(1.0, 1.0, 5.0))),
+        material: materials.add(StandardMaterial {
+            base_color: Color::rgba(1.0, 1.0, 1.0, 1.0),
+            perceptual_roughness: 0.8,
+            ..default()
+        }),
+        transform: Transform::from_xyz(0.0, 0.0, 0.0)
+            .with_rotation(Quat::from_rotation_x(PI * 0.5)),
         ..default()
     });
 }
