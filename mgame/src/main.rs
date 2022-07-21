@@ -6,6 +6,9 @@ use bevy::{
     pbr::PbrPlugin,
     prelude::*,
     render::{camera::Camera3d, RenderPlugin},
+    sprite::SpritePlugin,
+    text::TextPlugin,
+    ui::UiPlugin,
     window::WindowPlugin,
     winit::WinitPlugin,
 };
@@ -22,14 +25,17 @@ struct Actor {
 }
 
 #[derive(Component)]
-struct Pawn {
-    alive: bool,
-}
+struct Pawn;
 #[derive(Component)]
 struct PlayerController;
 
 #[derive(Component)]
 struct OpponentController;
+
+#[derive(Component)]
+struct FactionText {
+    faction: i32,
+}
 
 const OPPONENT_MOVE_SCALE: f32 = 1.0;
 const PAWN_SPEED: f32 = 0.02;
@@ -39,6 +45,8 @@ const REPULSION_THRESHOLD: f32 = 0.2;
 const REPULSION_FACTOR: f32 = 0.001;
 const ALIGN_FACTOR: f32 = 0.01;
 const ATTRACT_FACTOR: f32 = 0.0003;
+const ACTOR_COUNT: i32 = 300;
+const OPPONENT_COUNT: i32 = 5;
 
 fn main() {
     App::new()
@@ -51,6 +59,9 @@ fn main() {
         .add_plugin(RenderPlugin::default())
         .add_plugin(CorePipelinePlugin::default())
         .add_plugin(PbrPlugin::default())
+        .add_plugin(SpritePlugin::default())
+        .add_plugin(TextPlugin::default())
+        .add_plugin(UiPlugin::default())
         .add_plugin(KDTreePlugin2D::<Actor> { ..default() })
         .insert_resource(AmbientLight {
             brightness: 0.03,
@@ -66,6 +77,7 @@ fn main() {
         .add_system(update_camera_lookat_system)
         .add_system(follow_pawn_system)
         .add_system(repulse_actor_system)
+        .add_system(update_ui_system)
         .run();
 }
 
@@ -73,7 +85,12 @@ type ActorSpace = KDTreeAccess2D<Actor>; // type alias for later
 
 #[derive(Clone)]
 struct FactionMaterialHandles {
-    faction_materials: HashMap<i32, Handle<StandardMaterial>>,
+    faction_id_to_materials: HashMap<i32, Handle<StandardMaterial>>,
+}
+
+#[derive(Clone)]
+struct FactionActorCount {
+    faction_id_to_count: HashMap<i32, i32>,
 }
 
 fn get_color_by_faction(faction: i32) -> Color {
@@ -137,13 +154,10 @@ fn change_direction_actor_system(mut actor_query: Query<&mut Actor, Without<Pawn
 
 // system: opponent's will change direction randomly
 fn change_direction_opponent_system(
-    mut opponent_query: Query<(&mut Actor, &Pawn), With<OpponentController>>,
+    mut opponent_query: Query<&mut Actor, With<OpponentController>>,
 ) {
     let mut rng = thread_rng();
-    for (mut actor, pawn) in opponent_query.iter_mut() {
-        if !pawn.alive {
-            continue;
-        }
+    for mut actor in opponent_query.iter_mut() {
         random_change_direction(&mut actor, &mut rng, PAWN_SPEED);
     }
 }
@@ -175,11 +189,9 @@ fn follow_pawn_system(
 ) {
     let mut faction_to_velocity: HashMap<i32, Vec3> = HashMap::new();
     let mut faction_to_position: HashMap<i32, Vec3> = HashMap::new();
-    for (pawn_actor, pawn, tr) in pawn_query.iter() {
-        if pawn.alive {
-            faction_to_velocity.insert(pawn_actor.faction, pawn_actor.velocity);
-            faction_to_position.insert(pawn_actor.faction, tr.translation);
-        }
+    for (pawn_actor, _, tr) in pawn_query.iter() {
+        faction_to_velocity.insert(pawn_actor.faction, pawn_actor.velocity);
+        faction_to_position.insert(pawn_actor.faction, tr.translation);
     }
     for (mut actor, tr) in actor_query.iter_mut() {
         if actor.faction != -1 {
@@ -202,24 +214,27 @@ fn follow_pawn_system(
 
 // system: change actor's faction and visual according to it's surrounding majority faction
 fn change_actor_faction_system(
+    mut commands: Commands,
     spatial_query: Res<ActorSpace>,
     mut actor_set: Query<(
         Entity,
         &Transform,
         &mut Actor,
         &mut Handle<StandardMaterial>,
+        Option<&mut Pawn>,
     )>,
     faction_materials: Res<FactionMaterialHandles>,
+    mut faction_counts: ResMut<FactionActorCount>,
 ) {
     // https://github.com/bevyengine/bevy/issues/2495
     let mut entity_id_to_faction: HashMap<Entity, i32> = HashMap::new();
     // we cannot borrow actor_set twice as below we have to borrow it when do spatial query
     // so cache entity_id_to_faction in this loop
-    for (entity, tr, _, _) in actor_set.iter() {
+    for (entity, tr, _, _, _) in actor_set.iter() {
         let mut faction_to_count: HashMap<i32, i32> = HashMap::new();
         let neighbors = spatial_query.within_distance(tr.translation, NEIGHBOR_THRESHOLD);
         for (_, neighbor_entity) in neighbors.iter() {
-            let (_, _, neighbor_actor, _) = actor_set.get(*neighbor_entity).unwrap();
+            let (_, _, neighbor_actor, _, _) = actor_set.get(*neighbor_entity).unwrap();
             if neighbor_actor.faction == -1 {
                 continue; // we skip neighbor no faction actor
             }
@@ -242,17 +257,50 @@ fn change_actor_faction_system(
         }
     }
 
-    for (entity, _, mut actor, mut mat) in actor_set.iter_mut() {
+    for (entity, _, mut actor, mut mat, pawn) in actor_set.iter_mut() {
         match entity_id_to_faction.get(&entity) {
             Some(fac) => {
                 if *fac >= 0 && *fac != actor.faction {
-                    actor.faction = *fac;
-                    actor.velocity = Vec3::new(0.0, 0.0, 0.0);
-                    *mat = faction_materials
-                        .faction_materials
-                        .get(&fac)
-                        .unwrap()
-                        .clone();
+                    match pawn {
+                        Some(_) => {
+                            let faction_count = *faction_counts
+                                .faction_id_to_count
+                                .get(&actor.faction)
+                                .unwrap();
+                            if faction_count <= 1 {
+                                // this pawn is dead!
+                                print!(
+                                    "Remove pawn for faction {0}, with count {1}",
+                                    actor.faction, faction_count
+                                );
+                                commands.entity(entity).remove::<Pawn>();
+                            }
+                        }
+                        None => {
+                            // this is a normal actor
+
+                            // update faction count
+                            if actor.faction != -1 {
+                                faction_counts
+                                    .faction_id_to_count
+                                    .entry(actor.faction)
+                                    .and_modify(|f| *f -= 1);
+                            }
+                            faction_counts
+                                .faction_id_to_count
+                                .entry(*fac)
+                                .and_modify(|f| *f += 1);
+
+                            // update actor faction
+                            actor.faction = *fac;
+                            actor.velocity = Vec3::new(0.0, 0.0, 0.0);
+                            *mat = faction_materials
+                                .faction_id_to_materials
+                                .get(&fac)
+                                .unwrap()
+                                .clone();
+                        }
+                    }
                 }
             }
             None => {}
@@ -311,17 +359,27 @@ fn update_camera_lookat_system(
     cam.look_at(pl.translation, vec3(0.0, 0.0, 1.0));
 }
 
+fn update_ui_system(
+    faction_count: Res<FactionActorCount>,
+    mut text_query: Query<(&mut Text, &FactionText)>,
+) {
+    for (mut text, fac) in text_query.iter_mut() {
+        let count = faction_count.faction_id_to_count.get(&fac.faction).unwrap();
+        text.sections[2].value = format!("{0}", count);
+    }
+}
+
 fn setup(
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let region: f32 = 10.0;
-    let actor_count: i32 = 100;
-    let opponent_count: i32 = 1;
+    let region: f32 = 20.0;
 
     let mut faction_to_materials: HashMap<i32, Handle<StandardMaterial>> = HashMap::new();
-    for fac in -1..5 {
+    let mut faction_to_count: HashMap<i32, i32> = HashMap::new();
+    for fac in -1..(OPPONENT_COUNT + 1) {
         faction_to_materials.insert(
             fac,
             materials.add(StandardMaterial {
@@ -330,12 +388,17 @@ fn setup(
                 ..default()
             }),
         );
+        faction_to_count.insert(fac, 1);
     }
     let handles = FactionMaterialHandles {
-        faction_materials: faction_to_materials,
+        faction_id_to_materials: faction_to_materials,
     };
-
     commands.insert_resource(handles.clone());
+
+    let faction_count = FactionActorCount {
+        faction_id_to_count: faction_to_count,
+    };
+    commands.insert_resource(faction_count.clone());
 
     // camera
     commands.spawn_bundle(PerspectiveCameraBundle {
@@ -345,7 +408,7 @@ fn setup(
 
     // actors
     let mut rng = thread_rng();
-    for _ in 0..actor_count {
+    for _ in 0..ACTOR_COUNT {
         let x = rng.gen_range(-region..region);
         let y = rng.gen_range(-region..region);
         let dir = Vec3::new(rng.gen_range(-1.0..1.0), rng.gen_range(-1.0..1.0), 0.0);
@@ -372,7 +435,7 @@ fn setup(
     }
 
     // opponents
-    for fac in 1..(opponent_count + 1) {
+    for fac in 1..(OPPONENT_COUNT + 1) {
         let x = rng.gen_range(-region..region);
         let y = rng.gen_range(-region..region);
         let dir = Vec3::new(rng.gen_range(-1.0..1.0), rng.gen_range(-1.0..1.0), 0.0);
@@ -383,7 +446,7 @@ fn setup(
                     depth: 1.2,
                     ..default()
                 })),
-                material: handles.faction_materials.get(&fac).unwrap().clone(),
+                material: handles.faction_id_to_materials.get(&fac).unwrap().clone(),
                 transform: Transform::from_xyz(x, y, 0.0)
                     .with_rotation(Quat::from_rotation_x(PI * 0.5)),
                 ..default()
@@ -393,7 +456,7 @@ fn setup(
                 velocity: dir.normalize() * PAWN_SPEED,
                 accleration: Vec3::new(0.0, 0.0, 0.0),
             })
-            .insert(Pawn { alive: true })
+            .insert(Pawn {})
             .insert(OpponentController {});
     }
 
@@ -408,7 +471,7 @@ fn setup(
                 depth: 1.2,
                 ..default()
             })),
-            material: handles.faction_materials.get(&0).unwrap().clone(),
+            material: handles.faction_id_to_materials.get(&0).unwrap().clone(),
             transform: Transform::from_xyz(x, y, 0.0)
                 .with_rotation(Quat::from_rotation_x(PI * 0.5)),
             ..default()
@@ -418,7 +481,7 @@ fn setup(
             velocity: dir.normalize() * PAWN_SPEED,
             accleration: Vec3::new(0.0, 0.0, 0.0),
         })
-        .insert(Pawn { alive: true })
+        .insert(Pawn {})
         .insert(PlayerController);
 
     // ground
@@ -446,6 +509,7 @@ fn setup(
         ..default()
     });
 
+    // buildings
     commands.spawn_bundle(PbrBundle {
         mesh: meshes.add(Mesh::from(shape::Box::new(1.0, 1.0, 5.0))),
         material: materials.add(StandardMaterial {
@@ -457,4 +521,67 @@ fn setup(
             .with_rotation(Quat::from_rotation_x(PI * 0.5)),
         ..default()
     });
+
+    // uis
+
+    let team_name = vec![
+        "Player".to_string(),
+        "Anderson".to_string(),
+        "Bob".to_string(),
+        "Cat".to_string(),
+        "Doug".to_string(),
+        "Eason".to_string(),
+    ];
+
+    // UI camera
+    commands.spawn_bundle(UiCameraBundle::default());
+
+    for fac in 0..(OPPONENT_COUNT + 1) {
+        commands
+            .spawn_bundle(TextBundle {
+                style: Style {
+                    align_self: AlignSelf::FlexEnd,
+                    position_type: PositionType::Absolute,
+                    position: Rect {
+                        top: Val::Px(30.0 + 30.0 * (fac as f32)),
+                        right: Val::Px(15.0),
+                        ..default()
+                    },
+                    ..default()
+                },
+                // Use `Text` directly
+                text: Text {
+                    // Construct a `Vec` of `TextSection`s
+                    sections: vec![
+                        TextSection {
+                            value: team_name.get(fac as usize).unwrap().to_string(),
+                            style: TextStyle {
+                                font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                                font_size: 20.0,
+                                color: Color::WHITE,
+                            },
+                        },
+                        TextSection {
+                            value: ": ".to_string(),
+                            style: TextStyle {
+                                font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                                font_size: 20.0,
+                                color: Color::WHITE,
+                            },
+                        },
+                        TextSection {
+                            value: "".to_string(),
+                            style: TextStyle {
+                                font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                                font_size: 20.0,
+                                color: Color::WHITE,
+                            },
+                        },
+                    ],
+                    ..default()
+                },
+                ..default()
+            })
+            .insert(FactionText { faction: fac });
+    }
 }

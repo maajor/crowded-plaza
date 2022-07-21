@@ -6,3 +6,9 @@ wasm-bindgen --out-name mgame --out-dir target/wasm --target web target/wasm32-u
 https://github.com/anlumo/minimal-bevy-wasm
 
 https://bevy-cheatbook.github.io/introduction.html
+
+todo:
+
+- game over
+- restart game
+- city blockout model
