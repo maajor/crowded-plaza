@@ -51,8 +51,9 @@ const REPULSION_THRESHOLD: f32 = 0.2;
 const REPULSION_FACTOR: f32 = 0.001;
 const ALIGN_FACTOR: f32 = 0.01;
 const ATTRACT_FACTOR: f32 = 0.0003;
-const ACTOR_COUNT: i32 = 300;
+const ACTOR_COUNT: i32 = 2000;
 const OPPONENT_COUNT: i32 = 5;
+const ACTION_REGION: f32 = 20.0;
 
 fn main() {
     App::new()
@@ -418,7 +419,7 @@ fn setup_playing(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut count: ResMut<FactionActorCount>,
 ) {
-    let region: f32 = 20.0;
+    let region: f32 = ACTION_REGION;
 
     // timer count down
     let timer = Timer::from_seconds(40.0, false);
@@ -545,6 +546,7 @@ fn setup_playing(
             intensity: 1600.0,
             color: Color::WHITE,
             shadows_enabled: true,
+            range: 100.0,
             ..default()
         },
         ..default()
