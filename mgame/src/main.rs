@@ -17,6 +17,12 @@ use rand::{prelude::ThreadRng, thread_rng, Rng};
 use std::{collections::HashMap, f32::consts::PI};
 // https://crowdedcity.io/
 
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+enum GameState {
+    Playing,
+    GameOver,
+}
+
 #[derive(Component)]
 struct Actor {
     faction: i32,
@@ -52,6 +58,7 @@ fn main() {
     App::new()
         .add_plugins(MinimalPlugins)
         .add_plugin(TransformPlugin::default())
+        .add_plugin(HierarchyPlugin::default())
         .add_plugin(InputPlugin::default())
         .add_plugin(WindowPlugin::default())
         .add_plugin(AssetPlugin::default())
@@ -67,17 +74,27 @@ fn main() {
             brightness: 0.03,
             ..default()
         })
-        .add_startup_system(setup)
-        .add_system(change_direction_player_system)
-        .add_system(change_direction_actor_system)
-        .add_system(change_direction_opponent_system)
-        .add_system(move_actor_system)
-        .add_system(move_pawn_system)
-        .add_system(change_actor_faction_system)
-        .add_system(update_camera_lookat_system)
-        .add_system(follow_pawn_system)
-        .add_system(repulse_actor_system)
-        .add_system(update_ui_system)
+        .add_startup_system(setup_game)
+        .add_state(GameState::Playing)
+        .add_system_set(SystemSet::on_enter(GameState::Playing).with_system(setup_playing))
+        .add_system_set(
+            SystemSet::on_update(GameState::Playing)
+                .with_system(change_direction_player_system)
+                .with_system(change_direction_actor_system)
+                .with_system(change_direction_opponent_system)
+                .with_system(move_actor_system)
+                .with_system(move_pawn_system)
+                .with_system(change_actor_faction_system)
+                .with_system(update_camera_lookat_system)
+                .with_system(follow_pawn_system)
+                .with_system(repulse_actor_system)
+                .with_system(update_ui_system)
+                .with_system(countdown),
+        )
+        .add_system_set(SystemSet::on_exit(GameState::Playing).with_system(teardown))
+        .add_system_set(SystemSet::on_enter(GameState::GameOver).with_system(display_score))
+        .add_system_set(SystemSet::on_update(GameState::GameOver).with_system(gameover_keyboard))
+        .add_system_set(SystemSet::on_exit(GameState::GameOver).with_system(teardown))
         .run();
 }
 
@@ -225,6 +242,7 @@ fn change_actor_faction_system(
     )>,
     faction_materials: Res<FactionMaterialHandles>,
     mut faction_counts: ResMut<FactionActorCount>,
+    mut state: ResMut<State<GameState>>,
 ) {
     // https://github.com/bevyengine/bevy/issues/2495
     let mut entity_id_to_faction: HashMap<Entity, i32> = HashMap::new();
@@ -273,6 +291,10 @@ fn change_actor_faction_system(
                                     "Remove pawn for faction {0}, with count {1}",
                                     actor.faction, faction_count
                                 );
+                                if actor.faction == 0 {
+                                    // player gameover
+                                    state.set(GameState::GameOver).unwrap();
+                                }
                                 commands.entity(entity).remove::<Pawn>();
                             }
                         }
@@ -369,32 +391,11 @@ fn update_ui_system(
     }
 }
 
-fn setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let region: f32 = 20.0;
-
-    let mut faction_to_materials: HashMap<i32, Handle<StandardMaterial>> = HashMap::new();
+fn setup_game(mut commands: Commands) {
     let mut faction_to_count: HashMap<i32, i32> = HashMap::new();
-    for fac in -1..(OPPONENT_COUNT + 1) {
-        faction_to_materials.insert(
-            fac,
-            materials.add(StandardMaterial {
-                base_color: get_color_by_faction(fac),
-                perceptual_roughness: 0.8,
-                ..default()
-            }),
-        );
+    for fac in 0..(OPPONENT_COUNT + 1) {
         faction_to_count.insert(fac, 1);
     }
-    let handles = FactionMaterialHandles {
-        faction_id_to_materials: faction_to_materials,
-    };
-    commands.insert_resource(handles.clone());
-
     let faction_count = FactionActorCount {
         faction_id_to_count: faction_to_count,
     };
@@ -405,6 +406,46 @@ fn setup(
         transform: Transform::from_xyz(0.7, 0.7, 1.0).looking_at(Vec3::new(0.0, 0.3, 0.0), Vec3::Y),
         ..default()
     });
+
+    // UI camera
+    commands.spawn_bundle(UiCameraBundle::default());
+}
+
+fn setup_playing(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut count: ResMut<FactionActorCount>,
+) {
+    let region: f32 = 20.0;
+
+    // timer count down
+    let timer = Timer::from_seconds(40.0, false);
+    let count_down = Countdown { main_timer: timer };
+    commands.insert_resource(count_down);
+
+    // faction actor count
+    for fac in 0..(OPPONENT_COUNT + 1) {
+        count.faction_id_to_count.insert(fac, 1);
+    }
+
+    // material cache
+    let mut faction_to_materials: HashMap<i32, Handle<StandardMaterial>> = HashMap::new();
+    for fac in -1..(OPPONENT_COUNT + 1) {
+        faction_to_materials.insert(
+            fac,
+            materials.add(StandardMaterial {
+                base_color: get_color_by_faction(fac),
+                perceptual_roughness: 0.8,
+                ..default()
+            }),
+        );
+    }
+    let handles = FactionMaterialHandles {
+        faction_id_to_materials: faction_to_materials,
+    };
+    commands.insert_resource(handles.clone());
 
     // actors
     let mut rng = thread_rng();
@@ -533,9 +574,6 @@ fn setup(
         "Eason".to_string(),
     ];
 
-    // UI camera
-    commands.spawn_bundle(UiCameraBundle::default());
-
     for fac in 0..(OPPONENT_COUNT + 1) {
         commands
             .spawn_bundle(TextBundle {
@@ -583,5 +621,66 @@ fn setup(
                 ..default()
             })
             .insert(FactionText { faction: fac });
+    }
+}
+
+// remove all entities that are not a camera
+fn teardown(mut commands: Commands, entities: Query<Entity, Without<Camera>>) {
+    for entity in entities.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+}
+
+// display the number of cake eaten before losing
+fn display_score(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    faction_actor_count: Res<FactionActorCount>,
+) {
+    commands
+        .spawn_bundle(NodeBundle {
+            style: Style {
+                margin: Rect::all(Val::Auto),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            color: Color::NONE.into(),
+            ..default()
+        })
+        .with_children(|parent| {
+            parent.spawn_bundle(TextBundle {
+                text: Text::with_section(
+                    format!("Your Score"),
+                    TextStyle {
+                        font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                        font_size: 80.0,
+                        color: Color::rgb(0.5, 0.5, 1.0),
+                    },
+                    Default::default(),
+                ),
+                ..default()
+            });
+        });
+}
+
+// restart the game when pressing spacebar
+fn gameover_keyboard(mut state: ResMut<State<GameState>>, keyboard_input: Res<Input<KeyCode>>) {
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        state.set(GameState::Playing).unwrap();
+    }
+}
+
+pub struct Countdown {
+    pub main_timer: Timer,
+}
+
+fn countdown(
+    time: Res<Time>,
+    mut countdown: ResMut<Countdown>,
+    mut state: ResMut<State<GameState>>,
+) {
+    if countdown.main_timer.tick(time.delta()).just_finished() {
+        state.set(GameState::GameOver).unwrap();
     }
 }

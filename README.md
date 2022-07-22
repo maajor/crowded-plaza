@@ -9,6 +9,5 @@ https://bevy-cheatbook.github.io/introduction.html
 
 todo:
 
-- game over
-- restart game
+- game over ui
 - city blockout model
