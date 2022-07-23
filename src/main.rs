@@ -15,7 +15,6 @@ use bevy::{
 use bevy_spatial::{KDTreeAccess2D, KDTreePlugin2D, SpatialAccess};
 use rand::{prelude::ThreadRng, thread_rng, Rng};
 use std::{collections::HashMap, f32::consts::PI};
-// https://crowdedcity.io/
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash)]
 enum GameState {
@@ -54,8 +53,10 @@ const ATTRACT_FACTOR: f32 = 0.0003;
 const ACTOR_COUNT: i32 = 2000;
 const OPPONENT_COUNT: i32 = 5;
 const ACTION_REGION: f32 = 20.0;
-const GAME_TIME: f32 = 5.0;
+const GAME_TIME: f32 = 30.0;
 const CLEAR_COLOR: Color = Color::rgb(0.1, 0.1, 0.1);
+const LIGHT_COLOR: &str = "fdfff4";
+const AMBIENT_COLOR: &str = "d7deff";
 
 fn main() {
     App::new()
@@ -75,8 +76,8 @@ fn main() {
         .add_plugin(KDTreePlugin2D::<Actor> { ..default() })
         .insert_resource(ClearColor(CLEAR_COLOR))
         .insert_resource(AmbientLight {
-            brightness: 0.03,
-            ..default()
+            brightness: 0.2,
+            color: Color::hex(AMBIENT_COLOR).unwrap(),
         })
         .add_startup_system(setup_game)
         .add_state(GameState::Playing)
@@ -296,7 +297,7 @@ fn change_actor_faction_system(
                                 .unwrap();
                             if faction_count <= 1 {
                                 // this pawn is dead!
-                                print!(
+                                println!(
                                     "Remove pawn for faction {0}, with count {1}",
                                     actor.faction, faction_count
                                 );
@@ -564,8 +565,8 @@ fn setup_playing(
     commands.spawn_bundle(PointLightBundle {
         transform: Transform::from_xyz(0.0, 0.0, 8.0),
         point_light: PointLight {
-            intensity: 1600.0,
-            color: Color::WHITE,
+            intensity: 3600.0,
+            color: Color::hex(LIGHT_COLOR).unwrap(),
             shadows_enabled: true,
             range: 100.0,
             ..default()
@@ -573,21 +574,7 @@ fn setup_playing(
         ..default()
     });
 
-    // buildings
-    commands.spawn_bundle(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::Box::new(1.0, 1.0, 5.0))),
-        material: materials.add(StandardMaterial {
-            base_color: Color::rgba(1.0, 1.0, 1.0, 1.0),
-            perceptual_roughness: 0.8,
-            ..default()
-        }),
-        transform: Transform::from_xyz(0.0, 0.0, 0.0)
-            .with_rotation(Quat::from_rotation_x(PI * 0.5)),
-        ..default()
-    });
-
     // uis
-
     for fac in 0..(OPPONENT_COUNT + 1) {
         commands
             .spawn_bundle(TextBundle {
