@@ -9,5 +9,6 @@ https://bevy-cheatbook.github.io/introduction.html
 
 todo:
 
-- game over ui
 - city blockout model
+- profiling
+- webgl

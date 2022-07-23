@@ -54,6 +54,8 @@ const ATTRACT_FACTOR: f32 = 0.0003;
 const ACTOR_COUNT: i32 = 2000;
 const OPPONENT_COUNT: i32 = 5;
 const ACTION_REGION: f32 = 20.0;
+const GAME_TIME: f32 = 5.0;
+const CLEAR_COLOR: Color = Color::rgb(0.1, 0.1, 0.1);
 
 fn main() {
     App::new()
@@ -71,6 +73,7 @@ fn main() {
         .add_plugin(TextPlugin::default())
         .add_plugin(UiPlugin::default())
         .add_plugin(KDTreePlugin2D::<Actor> { ..default() })
+        .insert_resource(ClearColor(CLEAR_COLOR))
         .insert_resource(AmbientLight {
             brightness: 0.03,
             ..default()
@@ -94,7 +97,7 @@ fn main() {
         )
         .add_system_set(SystemSet::on_exit(GameState::Playing).with_system(teardown))
         .add_system_set(SystemSet::on_enter(GameState::GameOver).with_system(display_score))
-        .add_system_set(SystemSet::on_update(GameState::GameOver).with_system(gameover_keyboard))
+        .add_system_set(SystemSet::on_update(GameState::GameOver).with_system(replay_button_system))
         .add_system_set(SystemSet::on_exit(GameState::GameOver).with_system(teardown))
         .run();
 }
@@ -109,6 +112,11 @@ struct FactionMaterialHandles {
 #[derive(Clone)]
 struct FactionActorCount {
     faction_id_to_count: HashMap<i32, i32>,
+}
+
+#[derive(Clone)]
+struct TeamNaming {
+    names: Vec<String>,
 }
 
 fn get_color_by_faction(faction: i32) -> Color {
@@ -402,6 +410,18 @@ fn setup_game(mut commands: Commands) {
     };
     commands.insert_resource(faction_count.clone());
 
+    let team_name = vec![
+        "Player".to_string(),
+        "Anderson".to_string(),
+        "Bob".to_string(),
+        "Cat".to_string(),
+        "Doug".to_string(),
+        "Eason".to_string(),
+    ];
+
+    let naming = TeamNaming { names: team_name };
+    commands.insert_resource(naming);
+
     // camera
     commands.spawn_bundle(PerspectiveCameraBundle {
         transform: Transform::from_xyz(0.7, 0.7, 1.0).looking_at(Vec3::new(0.0, 0.3, 0.0), Vec3::Y),
@@ -418,11 +438,12 @@ fn setup_playing(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut count: ResMut<FactionActorCount>,
+    naming: ResMut<TeamNaming>,
 ) {
     let region: f32 = ACTION_REGION;
 
     // timer count down
-    let timer = Timer::from_seconds(40.0, false);
+    let timer = Timer::from_seconds(GAME_TIME, false);
     let count_down = Countdown { main_timer: timer };
     commands.insert_resource(count_down);
 
@@ -567,15 +588,6 @@ fn setup_playing(
 
     // uis
 
-    let team_name = vec![
-        "Player".to_string(),
-        "Anderson".to_string(),
-        "Bob".to_string(),
-        "Cat".to_string(),
-        "Doug".to_string(),
-        "Eason".to_string(),
-    ];
-
     for fac in 0..(OPPONENT_COUNT + 1) {
         commands
             .spawn_bundle(TextBundle {
@@ -594,7 +606,7 @@ fn setup_playing(
                     // Construct a `Vec` of `TextSection`s
                     sections: vec![
                         TextSection {
-                            value: team_name.get(fac as usize).unwrap().to_string(),
+                            value: naming.names.get(fac as usize).unwrap().to_string(),
                             style: TextStyle {
                                 font: asset_server.load("fonts/FiraMono-Medium.ttf"),
                                 font_size: 20.0,
@@ -637,40 +649,118 @@ fn teardown(mut commands: Commands, entities: Query<Entity, Without<Camera>>) {
 fn display_score(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    faction_actor_count: Res<FactionActorCount>,
+    mut faction_actor_count: ResMut<FactionActorCount>,
+    naming: ResMut<TeamNaming>,
 ) {
+    let mut ordered_fac_to_count = faction_actor_count
+        .faction_id_to_count
+        .drain()
+        .collect::<Vec<(i32, i32)>>();
+    ordered_fac_to_count.sort_by(|(_, count1), (_, count2)| count2.cmp(&count1));
+
     commands
         .spawn_bundle(NodeBundle {
             style: Style {
                 margin: Rect::all(Val::Auto),
-                justify_content: JustifyContent::Center,
+                flex_direction: FlexDirection::ColumnReverse,
                 align_items: AlignItems::Center,
                 ..default()
             },
-            color: Color::NONE.into(),
+            color: UiColor(Color::rgba(0.0, 0.0, 0.0, 0.0)),
             ..default()
         })
         .with_children(|parent| {
-            parent.spawn_bundle(TextBundle {
-                text: Text::with_section(
-                    format!("Your Score"),
-                    TextStyle {
-                        font: asset_server.load("fonts/FiraMono-Medium.ttf"),
-                        font_size: 80.0,
-                        color: Color::rgb(0.5, 0.5, 1.0),
+            if ordered_fac_to_count[0].0 == 0 {
+                parent.spawn_bundle(TextBundle {
+                    style: Style {
+                        margin: Rect::all(Val::Px(20.0)),
+                        ..default()
                     },
-                    Default::default(),
-                ),
-                ..default()
-            });
-        });
-}
+                    text: Text::with_section(
+                        "Victory!",
+                        TextStyle {
+                            font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                            font_size: 40.0,
+                            color: Color::WHITE,
+                        },
+                        TextAlignment {
+                            horizontal: HorizontalAlign::Center,
+                            ..default()
+                        },
+                    ),
+                    ..default()
+                });
+            } else {
+                parent.spawn_bundle(TextBundle {
+                    style: Style {
+                        margin: Rect::all(Val::Px(20.0)),
+                        ..default()
+                    },
+                    text: Text::with_section(
+                        "You Lost!",
+                        TextStyle {
+                            font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                            font_size: 40.0,
+                            color: Color::WHITE,
+                        },
+                        TextAlignment {
+                            horizontal: HorizontalAlign::Center,
+                            ..default()
+                        },
+                    ),
+                    ..default()
+                });
+            }
 
-// restart the game when pressing spacebar
-fn gameover_keyboard(mut state: ResMut<State<GameState>>, keyboard_input: Res<Input<KeyCode>>) {
-    if keyboard_input.just_pressed(KeyCode::Space) {
-        state.set(GameState::Playing).unwrap();
-    }
+            for (fac, score) in ordered_fac_to_count {
+                parent.spawn_bundle(TextBundle {
+                    style: Style {
+                        margin: Rect::all(Val::Px(10.0)),
+                        ..default()
+                    },
+                    text: Text::with_section(
+                        format!("{0}: {1}\n", naming.names.get(fac as usize).unwrap(), score),
+                        TextStyle {
+                            font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                            font_size: 20.0,
+                            color: Color::WHITE,
+                        },
+                        TextAlignment {
+                            horizontal: HorizontalAlign::Center,
+                            ..default()
+                        },
+                    ),
+                    ..default()
+                });
+            }
+
+            parent
+                .spawn_bundle(ButtonBundle {
+                    style: Style {
+                        size: Size::new(Val::Px(200.0), Val::Px(65.0)),
+                        margin: Rect::all(Val::Px(20.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    color: NORMAL_BUTTON.into(),
+                    ..default()
+                })
+                .with_children(|parent| {
+                    parent.spawn_bundle(TextBundle {
+                        text: Text::with_section(
+                            "Play Again!",
+                            TextStyle {
+                                font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                                font_size: 30.0,
+                                color: Color::WHITE,
+                            },
+                            Default::default(),
+                        ),
+                        ..default()
+                    });
+                });
+        });
 }
 
 pub struct Countdown {
@@ -684,5 +774,32 @@ fn countdown(
 ) {
     if countdown.main_timer.tick(time.delta()).just_finished() {
         state.set(GameState::GameOver).unwrap();
+    }
+}
+
+const NORMAL_BUTTON: Color = Color::rgb(0.15, 0.15, 0.15);
+const HOVERED_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
+const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
+
+fn replay_button_system(
+    mut interaction_query: Query<
+        (&Interaction, &mut UiColor, &Children),
+        (Changed<Interaction>, With<Button>),
+    >,
+    mut state: ResMut<State<GameState>>,
+) {
+    for (interaction, mut color, _) in interaction_query.iter_mut() {
+        match *interaction {
+            Interaction::Clicked => {
+                state.set(GameState::Playing).unwrap();
+                *color = PRESSED_BUTTON.into();
+            }
+            Interaction::Hovered => {
+                *color = HOVERED_BUTTON.into();
+            }
+            Interaction::None => {
+                *color = NORMAL_BUTTON.into();
+            }
+        }
     }
 }
