@@ -11,7 +11,7 @@ An experimental game with [bevy 0.7.0](https://github.com/bevyengine/bevy)
 
 ```
 cargo build --release --target wasm32-unknown-unknown
-wasm-bindgen --out-name mgame --out-dir target/wasm --target web target/wasm32-unknown-unknown/release/mgame.wasm
+wasm-bindgen --out-name game --out-dir target/wasm --target web target/wasm32-unknown-unknown/release/crowded-plaza.wasm
 ```
 
 ## Start Game in Browser
