@@ -1,7 +1,9 @@
+use bevy::winit::WinitPlugin;
+mod canvas_resize;
 use bevy::{
     asset::AssetPlugin,
     core_pipeline::CorePipelinePlugin,
-    input::InputPlugin,
+    input::{touch::TouchPhase, InputPlugin},
     math::vec3,
     pbr::PbrPlugin,
     prelude::*,
@@ -9,8 +11,7 @@ use bevy::{
     sprite::SpritePlugin,
     text::TextPlugin,
     ui::UiPlugin,
-    window::WindowPlugin,
-    winit::WinitPlugin,
+    window::{WindowMode, WindowPlugin},
 };
 use bevy_spatial::{KDTreeAccess2D, KDTreePlugin2D, SpatialAccess};
 use rand::{prelude::ThreadRng, thread_rng, Rng};
@@ -60,12 +61,19 @@ const AMBIENT_COLOR: &str = "d7deff";
 
 fn main() {
     App::new()
+        .insert_resource(WindowDescriptor {
+            #[cfg(target_arch = "wasm32")]
+            canvas: Some("#game".to_string()),
+            mode: WindowMode::BorderlessFullscreen,
+            ..Default::default()
+        })
         .add_plugins(MinimalPlugins)
         .add_plugin(TransformPlugin::default())
         .add_plugin(HierarchyPlugin::default())
         .add_plugin(InputPlugin::default())
         .add_plugin(WindowPlugin::default())
         .add_plugin(AssetPlugin::default())
+        .add_plugin(crate::canvas_resize::CanvasResizePlugin::default())
         .add_plugin(WinitPlugin::default())
         .add_plugin(RenderPlugin::default())
         .add_plugin(CorePipelinePlugin::default())
@@ -139,6 +147,7 @@ fn change_direction_player_system(
     mut cursor_moved_events: EventReader<CursorMoved>,
     windows: ResMut<Windows>,
     mut player_query: Query<&mut Actor, With<PlayerController>>,
+    mut touch_evr: EventReader<TouchInput>,
 ) {
     let window = windows.primary();
     let width = window.width();
@@ -152,6 +161,20 @@ fn change_direction_player_system(
                 -event.position.x + window_size.x,
             );
             player.velocity = move_direction.normalize().extend(0.0) * PAWN_SPEED;
+        }
+    }
+
+    // handle touch
+    for event in touch_evr.iter() {
+        match event.phase {
+            TouchPhase::Moved => {
+                let move_direction = Vec2::new(
+                    event.position.y - window_size.y,
+                    -event.position.x + window_size.x,
+                );
+                player.velocity = move_direction.normalize().extend(0.0) * PAWN_SPEED;
+            }
+            _ => {}
         }
     }
 }
