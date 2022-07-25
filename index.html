@@ -6,16 +6,19 @@
         background-color: black;
         margin: 0;
       }
-      .center{
-        color: white;
+      .text_container{
         display: flex;
+        align-items: center;
         justify-content: center;
-        margin-top: 30%;
+        width: 100%;
+        height:100%
       }
     </style>
   </head>
   <body>
-      <h1 id="loading" class="center">Loading...</h1>
+      <div id="loading" class="text_container">
+        <h1 style="color: white;">Loading...</h1>
+      </div>
       <canvas id="game"></canvas>
   </body>
   <script type="module">
