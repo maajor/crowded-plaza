@@ -6,13 +6,22 @@
         background-color: black;
         margin: 0;
       }
+      .center{
+        color: white;
+        display: flex;
+        justify-content: center;
+        margin-top: 30%;
+      }
     </style>
   </head>
   <body>
+      <h1 id="loading" class="center">Loading...</h1>
       <canvas id="game"></canvas>
   </body>
   <script type="module">
     import init from './target/wasm/game.js'
-    init()
+    init().finally(()=>{
+      document.querySelector("#loading").remove();
+    });
   </script>
 </html>
