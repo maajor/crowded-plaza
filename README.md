@@ -3,6 +3,8 @@
 Inspired by [Crowded City](https://crowdedcity.io)  
 An experimental io game with [bevy 0.7.0](https://github.com/bevyengine/bevy)
 
+Play online at [crowded-plaza.vercel.app](https://crowded-plaza.vercel.app/)
+
 My blog on this [Crowded Plaza, A Game With Bevy/Rust| 拥挤广场：使用 Bevy/Rust 开发小游戏](http://ma-yidong.com/2022/07/26/crowded-plaza/)
 
 Screenshot:
