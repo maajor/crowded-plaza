@@ -2,6 +2,11 @@
 
 ## Performance
 
+please see code at
+
+- [many-cubes bevy](./examples/many_cubes.rs)
+- [many-cubes unity](./benchmark/unity-many-cubes/)
+
 with 200 x 200 x 50 cubes,
 
 | Stat                      | Bevy    | Unity  |
@@ -31,10 +36,12 @@ using built in profiler
 
 ## WASM Build Size
 
-[many-cubes bevy](./examples/many_cubes.rs)
-[many-cubes unity](./benchmark/unity-many-cubes/)
-[min-wasm bevy](./benchmark/bevy-min-wasm/)
-[min-wasm unity](./benchmark/unity-min-wasm/)
+please see code at
+
+- [many-cubes bevy](./examples/many_cubes.rs)
+- [many-cubes unity](./benchmark/unity-many-cubes/)
+- [min-wasm bevy](./benchmark/bevy-min-wasm/)
+- [min-wasm unity](./benchmark/unity-min-wasm/)
 
 | Stat                            | Bevy    | Unity   |
 | ------------------------------- | ------- | ------- |
