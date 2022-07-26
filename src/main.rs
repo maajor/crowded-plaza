@@ -1,8 +1,10 @@
+use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::winit::WinitPlugin;
 mod canvas_resize;
 use bevy::{
     asset::AssetPlugin,
     core_pipeline::CorePipelinePlugin,
+    diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin},
     input::{touch::TouchPhase, InputPlugin},
     math::vec3,
     pbr::PbrPlugin,
@@ -43,6 +45,9 @@ struct FactionText {
     faction: i32,
 }
 
+#[derive(Component)]
+struct FpsText;
+
 const OPPONENT_MOVE_SCALE: f32 = 1.0;
 const PAWN_SPEED: f32 = 0.02;
 const WANDER_SPEED: f32 = 0.005;
@@ -70,6 +75,7 @@ fn main() {
         .add_plugins(MinimalPlugins)
         .add_plugin(TransformPlugin::default())
         .add_plugin(HierarchyPlugin::default())
+        .add_plugin(DiagnosticsPlugin::default())
         .add_plugin(InputPlugin::default())
         .add_plugin(WindowPlugin::default())
         .add_plugin(AssetPlugin::default())
@@ -82,6 +88,7 @@ fn main() {
         .add_plugin(TextPlugin::default())
         .add_plugin(UiPlugin::default())
         .add_plugin(KDTreePlugin2D::<Actor> { ..default() })
+        .add_plugin(FrameTimeDiagnosticsPlugin::default())
         .insert_resource(ClearColor(CLEAR_COLOR))
         .insert_resource(AmbientLight {
             brightness: 0.2,
@@ -102,7 +109,8 @@ fn main() {
                 .with_system(follow_pawn_system)
                 .with_system(repulse_actor_system)
                 .with_system(update_ui_system)
-                .with_system(countdown),
+                .with_system(countdown)
+                .with_system(text_update_system),
         )
         .add_system_set(SystemSet::on_exit(GameState::Playing).with_system(teardown))
         .add_system_set(SystemSet::on_enter(GameState::GameOver).with_system(display_score))
@@ -646,6 +654,38 @@ fn setup_playing(
             })
             .insert(FactionText { faction: fac });
     }
+
+    // fps text
+    commands
+        .spawn_bundle(TextBundle {
+            style: Style {
+                align_self: AlignSelf::FlexEnd,
+                ..default()
+            },
+            text: Text {
+                sections: vec![
+                    TextSection {
+                        value: "FPS: ".to_string(),
+                        style: TextStyle {
+                            font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                            font_size: 30.0,
+                            color: Color::WHITE,
+                        },
+                    },
+                    TextSection {
+                        value: "".to_string(),
+                        style: TextStyle {
+                            font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                            font_size: 30.0,
+                            color: Color::WHITE,
+                        },
+                    },
+                ],
+                ..default()
+            },
+            ..default()
+        })
+        .insert(FpsText);
 }
 
 // remove all entities that are not a camera
@@ -707,7 +747,7 @@ fn display_score(
                         ..default()
                     },
                     text: Text::with_section(
-                        "You Lost!",
+                        "You Loss!",
                         TextStyle {
                             font: asset_server.load("fonts/FiraMono-Medium.ttf"),
                             font_size: 40.0,
@@ -809,6 +849,17 @@ fn replay_button_system(
             }
             Interaction::None => {
                 *color = NORMAL_BUTTON.into();
+            }
+        }
+    }
+}
+
+fn text_update_system(diagnostics: Res<Diagnostics>, mut query: Query<&mut Text, With<FpsText>>) {
+    for mut text in query.iter_mut() {
+        if let Some(fps) = diagnostics.get(FrameTimeDiagnosticsPlugin::FPS) {
+            if let Some(average) = fps.average() {
+                // Update the value of the second section
+                text.sections[1].value = format!("{:.2}", average);
             }
         }
     }

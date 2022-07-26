@@ -9,15 +9,19 @@ An experimental game with [bevy 0.7.0](https://github.com/bevyengine/bevy)
 
 ## Build Wasm
 
-```
+```bash
+# build to wasm
 cargo build --profile release-wasm --target wasm32-unknown-unknown
-wasm-bindgen --out-name game --out-dir target/wasm --target web target/wasm32-unknown-unknown/release-wasm/crowded-plaza.wasm
+# bind to js
+wasm-bindgen --out-name game --out-dir release --no-typescript --target web target/wasm32-unknown-unknown/release-wasm/crowded-plaza.wasm
+# compress to gzip
+gzip -9 release/game_bg.wasm
 ```
 
 Size is around
 
 - 7.7 MB Uncompressed
-- 1.9 MB Gz Compressed
+- 2.0 MB gzip Compressed
 
 ## Start Game in Browser
 
@@ -33,8 +37,8 @@ then visit `http://localhost:8000`
 
 Conclusion
 
-- Bevy ECS is around 10x slower than Unity ECS
+- Bevy is around 10x slower than Unity ECS on x86_64 build (bevy vulkan vs unity dx11)
 - Size of Bevy minimal wasm build is similar to Unity one
-- Size of Bevy ecs wasm build is 2x smaller than Unity one
+- Size of Bevy ecs wasm build is 3x smaller than Unity ecs
 
 For more details, see [Benchmark](./BENCHMARK.md)
