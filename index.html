@@ -6,25 +6,45 @@
         background-color: black;
         margin: 0;
       }
-      .text_container{
+      .text_container {
         display: flex;
         align-items: center;
         justify-content: center;
         width: 100%;
-        height:100%
+        height: 100%;
       }
     </style>
   </head>
   <body>
-      <div id="loading" class="text_container">
-        <h1 style="color: white;">Loading...</h1>
-      </div>
-      <canvas id="game"></canvas>
+    <div id="loading" class="text_container">
+      <h1 style="color: white">Loading...</h1>
+    </div>
+    <canvas id="game"></canvas>
   </body>
+  <script type="text/javascript" src="/release/pako_inflate.min.js"></script>
   <script type="module">
-    import init from './target/wasm/game.js'
-    init().finally(()=>{
-      document.querySelector("#loading").remove();
-    });
+    import init from "./release/game.js";
+
+    let wasm_file = new URL("/release/game_bg.wasm.gz", import.meta.url);
+
+    fetch(wasm_file, {
+      headers: {
+        "Content-Encoding": "gzip",
+        "Content-Type": "application/wasm",
+      },
+    })
+      .then((rsp) => {
+        return rsp.blob();
+      })
+      .then((blob) => {
+        return blob.arrayBuffer();
+      })
+      .then((buffer) => {
+        let buf = pako.inflate(buffer);
+        return init(buf);
+      })
+      .finally(() => {
+        document.querySelector("#loading").remove();
+      });
   </script>
 </html>
