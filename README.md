@@ -1,11 +1,20 @@
 # Crowded Plaza
 
 Inspired by [Crowded City](https://crowdedcity.io)  
-An experimental game with [bevy 0.7.0](https://github.com/bevyengine/bevy)
+An experimental io game with [bevy 0.7.0](https://github.com/bevyengine/bevy)
 
-## Dev Run
+My blog on this [Crowded Plaza, A Game With Bevy/Rust| 拥挤广场：使用 Bevy/Rust 开发小游戏](http://ma-yidong.com/2022/07/26/crowded-plaza/)
 
-`cargo run`
+Screenshot:
+![screenshot](./imgs/screenshot.jpg)
+
+## Development Run
+
+just
+
+```bash
+cargo run
+```
 
 ## Build Wasm
 
@@ -41,4 +50,4 @@ Conclusion
 - Size of Bevy minimal wasm build is similar to Unity one
 - Size of Bevy ecs wasm build is 3x smaller than Unity ecs
 
-For more details, see [Benchmark](./BENCHMARK.md)
+For more details, see [Benchmark](./BENCHMARK.md) and my blog

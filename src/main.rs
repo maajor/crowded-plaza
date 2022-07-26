@@ -1,10 +1,8 @@
-use bevy::diagnostic::DiagnosticsPlugin;
-use bevy::winit::WinitPlugin;
 mod canvas_resize;
 use bevy::{
     asset::AssetPlugin,
     core_pipeline::CorePipelinePlugin,
-    diagnostic::{Diagnostics, FrameTimeDiagnosticsPlugin},
+    diagnostic::{Diagnostics, DiagnosticsPlugin, FrameTimeDiagnosticsPlugin},
     input::{touch::TouchPhase, InputPlugin},
     math::vec3,
     pbr::PbrPlugin,
@@ -14,6 +12,7 @@ use bevy::{
     text::TextPlugin,
     ui::UiPlugin,
     window::{WindowMode, WindowPlugin},
+    winit::WinitPlugin,
 };
 use bevy_spatial::{KDTreeAccess2D, KDTreePlugin2D, SpatialAccess};
 use rand::{prelude::ThreadRng, thread_rng, Rng};
